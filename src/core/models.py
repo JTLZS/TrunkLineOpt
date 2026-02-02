@@ -1,9 +1,9 @@
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
 
 @dataclass
 class Dimensions:
-    """定义多维容量：[重量kg, 体积m3] (功能点A)"""
+    """定义多维容量：[重量kg, 体积m3]"""
     weight: int
     volume: int
 
@@ -12,19 +12,29 @@ class Dimensions:
 
 @dataclass
 class TrunkVehicle:
-    """干线车辆模型"""
+    """干线车辆模型 (增强版)"""
     id: int
-    start_location: List[float]  # [经度, 纬度]
+    start_location: List[float]
     end_location: List[float]
-    capacity: Dimensions         # 车辆载重限制
-    skills: List[str] = field(default_factory=list) # 车辆技能 (功能点B)
-    profile: str = "truck"       # 路由模式
+    capacity: Dimensions
+    skills: List[str] = field(default_factory=list)
+    
+    # --- 干线新增属性 ---
+    cost_per_km: float = 1.0       # 每公里运输成本 (大车更贵)
+    fixed_cost: int = 0            # 发车固定成本 (过路费/司机底薪)
+    max_distance_km: int = 3000    # 最大行驶里程限制 (防止疲劳驾驶)
 
 @dataclass
 class TrunkOrder:
-    """干线订单模型"""
+    """干线订单模型 (增强版)"""
     id: int
     pickup_location: List[float]
     delivery_location: List[float]
-    amount: Dimensions           # 货物数量
-    required_skills: List[str] = field(default_factory=list) # 需求技能 (功能点B)
+    amount: Dimensions
+    required_skills: List[str] = field(default_factory=list)
+    
+    # --- 干线新增属性 ---
+    # 软时间窗：期望在多少小时内送达。如果超时，会有惩罚成本，但不会无解。
+    # 单位：分钟 (从 0时刻 开始计算)
+    delivery_deadline_min: Optional[int] = None 
+    penalty_per_min: int = 10  # 超时每分钟的惩罚系数

@@ -1,4 +1,4 @@
-id,start_x,start_y,cap_weight,cap_volume,skills
-101,113.3,23.1,30000,80,cold
-102,113.3,23.1,35000,80,
-103,116.4,39.9,20000,60,
+id,start_x,start_y,cap_weight,cap_volume,skills,cost_km,fixed_cost
+101,113.3,23.1,30000,80,cold,3.0,500
+102,113.3,23.1,35000,80,,2.5,400
+103,116.4,39.9,20000,60,,1.8,200

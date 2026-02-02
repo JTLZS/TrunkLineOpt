@@ -13,14 +13,14 @@ DATA_DIR = 'data'
 VEHICLE_FILE = os.path.join(DATA_DIR, 'vehicles.csv')
 ORDER_FILE = os.path.join(DATA_DIR, 'orders.csv')
 
-def run_demo():
-    print(">>> 1. 系统初始化 (模块化版)...")
+def run_trunk_opt():
+    print(">>> 🚚 启动干线物流智能调度引擎 (M1 增强版)...")
     builder = VroomInputBuilder()
 
-    # --- 1. 读取车辆文件 ---
+    # --- 1. 读取车辆文件 (支持异构成本) ---
     try:
         if not os.path.exists(VEHICLE_FILE):
-            print(f"❌ 错误: 找不到文件 {VEHICLE_FILE}。请确保已创建 'data' 文件夹并将 csv 放入其中。")
+            print(f"❌ 错误: 找不到文件 {VEHICLE_FILE}")
             return
 
         df_vehicles = pd.read_csv(VEHICLE_FILE)
@@ -29,12 +29,18 @@ def run_demo():
         for index, row in df_vehicles.iterrows():
             skills = clean_skills(row.get('skills', ''))
             
+            # 读取新字段，设置默认值
+            cost_km = float(row.get('cost_km', 1.5))       # 默认每公里1.5元
+            fixed_cost = int(row.get('fixed_cost', 200))   # 默认启动费200元
+
             vehicle = TrunkVehicle(
                 id=int(row['id']),
                 start_location=[float(row['start_x']), float(row['start_y'])],
                 end_location=[float(row['start_x']), float(row['start_y'])],
                 capacity=Dimensions(int(row['cap_weight']), int(row['cap_volume'])),
-                skills=skills
+                skills=skills,
+                cost_per_km=cost_km,
+                fixed_cost=fixed_cost
             )
             builder.add_vehicle(vehicle)
             
@@ -42,7 +48,7 @@ def run_demo():
         print(f"❌ 车辆文件读取失败: {e}")
         return
 
-    # --- 2. 读取订单文件 ---
+    # --- 2. 读取订单文件 (支持软时间窗) ---
     try:
         if not os.path.exists(ORDER_FILE):
             print(f"❌ 错误: 找不到文件 {ORDER_FILE}")
@@ -54,12 +60,17 @@ def run_demo():
         for index, row in df_orders.iterrows():
             skills_req = clean_skills(row.get('skill_req', ''))
             
+            # 读取截止时间 (小时转分钟)
+            deadline_hour = row.get('deadline_hour', None)
+            deadline_min = int(deadline_hour * 60) if pd.notna(deadline_hour) else None
+
             order = TrunkOrder(
                 id=int(row['id']),
                 pickup_location=[float(row['pick_x']), float(row['pick_y'])],
                 delivery_location=[float(row['del_x']), float(row['del_y'])],
                 amount=Dimensions(int(row['weight']), int(row['volume'])),
-                required_skills=skills_req
+                required_skills=skills_req,
+                delivery_deadline_min=deadline_min
             )
             builder.add_order(order)
             
@@ -67,22 +78,15 @@ def run_demo():
         print(f"❌ 订单文件读取失败: {e}")
         return
 
-    # --- 3. 生成数据并【自检】 ---
+    # --- 3. 求解与输出 ---
     input_json = builder.build()
     
-    print("\n========= [数据自检] =========")
-    if input_json['vehicles']:
-        v1 = input_json['vehicles'][0]
-        print(f"🔍 车辆样本 (ID {v1['id']}): 技能={v1['skills']} (类型: {type(v1['skills'])})")
-    
-    print("==============================\n")
-
-    # --- 4. 调用算法 ---
-    print(f">>> 2. 数据检查完毕。启动计算...")
-    real_result = OrToolsSolver.solve(input_json)
+    print("\n========= [调度计算] =========")
+    print("目标: 最小化总成本 (里程费 + 固定费 + 延误惩罚)")
+    result = OrToolsSolver.solve(input_json)
     
     # 解析输出
-    PlanParser.parse(real_result)
+    PlanParser.parse(result)
 
 if __name__ == "__main__":
-    run_demo()
+    run_trunk_opt()
