@@ -11,8 +11,7 @@ class OrToolsSolver:
         shipments = data['shipments']
         
         TRUCK_SPEED_KMH = 70.0  
-        # [修改点1] 定义一次性作业时间 (例如: 靠台+解封+手续+装卸 = 60分钟)
-        # 只有在切换站点时，才会计算一次这个时间
+        # 定义一次性作业时间 (例如: 靠台+解封+手续+装卸 = 60分钟)
         SITE_OPERATION_TIME_MIN = 60 
 
         if not vehicles or not shipments:
@@ -60,7 +59,7 @@ class OrToolsSolver:
             fixed_cost = vehicle_data.get('fixed_cost', 0)
             routing.SetFixedCostOfVehicle(fixed_cost, v_idx)
 
-        # --- 4. 维度约束 ---
+        # --- 4. 维度约束 (Capacity: 重量 & 体积) ---
         def create_capacity_dim(name, key_idx):
             def cap_callback(from_index):
                 node = manager.IndexToNode(from_index)
@@ -77,30 +76,24 @@ class OrToolsSolver:
                 True, name
             )
         
+        # [修复] 确保 Weight 和 Volume 约束都已创建
         create_capacity_dim("Weight", 0)
         create_capacity_dim("Volume", 1)
 
-        # --- [关键修改] 时间维度：按站点计费，同站不计时 ---
+        # --- 时间维度：按站点计费，同站不计时 ---
         def time_callback(from_index, to_index):
             from_node = manager.IndexToNode(from_index)
             to_node = manager.IndexToNode(to_index)
             
-            # 计算路程时间
             travel_time = get_time_min(from_node, to_node)
             
-            # 这里的逻辑是：Cost(A -> B)
-            # 如果 A 和 B 是同一个坐标（同站连续作业），则不增加时间，不增加行驶时间
             loc_from = locations[from_node]
             loc_to = locations[to_node]
             
-            # 简单的坐标比对 (实际项目中建议用唯一SiteID，这里对比坐标列表)
+            # 同站点连续装卸：无额外时间消耗
             if loc_from == loc_to:
-                return 0  # 同站点连续装卸：无额外时间消耗
+                return 0  
             
-            # 如果是不同站点：
-            # 消耗 = 路程时间 + 上一个站点的作业时间(Site Operation Time)
-            # 注意：若是从车场(Node 0)出发，通常不计装车时间或另算，这里暂且设为0，
-            # 意味着车场出发直接开始计时，到了第一个点才算作业时间。
             extra_service_time = 0
             if from_node != 0: 
                 extra_service_time = SITE_OPERATION_TIME_MIN
@@ -167,7 +160,7 @@ class OrToolsSolver:
             routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH)
         search_parameters.time_limit.seconds = 5
 
-        print(f"   [算法核心] 启动计算 (站点聚合模式)...")
+        print(f"   [算法核心] 启动计算 (Capacity Check: Weight/Volume)...")
         solution = routing.SolveWithParameters(search_parameters)
 
         if not solution:
@@ -179,6 +172,8 @@ class OrToolsSolver:
 def extract_solution(manager, routing, solution, vehicles, locations, shipments, time_dim, start_time):
     routes_json = []
     weight_dim = routing.GetDimensionOrDie("Weight")
+    # [修复] 获取体积维度
+    volume_dim = routing.GetDimensionOrDie("Volume")
     
     for vehicle_id in range(len(vehicles)):
         index = routing.Start(vehicle_id)
@@ -191,6 +186,8 @@ def extract_solution(manager, routing, solution, vehicles, locations, shipments,
             node_index = manager.IndexToNode(index)
             time_val = solution.Value(time_dim.CumulVar(index))
             load_w = solution.Value(weight_dim.CumulVar(index))
+            # [修复] 读取体积值
+            load_v = solution.Value(volume_dim.CumulVar(index))
             
             if start_time:
                 current_dt = start_time + timedelta(minutes=time_val)
@@ -210,7 +207,8 @@ def extract_solution(manager, routing, solution, vehicles, locations, shipments,
             steps.append({
                 "type": step_type,
                 "location": locations[node_index],
-                "load": [load_w, 0],
+                # [修复] 传递真实的体积数据 [weight, volume]
+                "load": [load_w, load_v],
                 "arrival": time_str,
                 "order_id": oid 
             })
