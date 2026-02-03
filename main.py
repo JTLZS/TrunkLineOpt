@@ -14,10 +14,10 @@ VEHICLE_FILE = os.path.join(DATA_DIR, 'vehicles.csv')
 ORDER_FILE = os.path.join(DATA_DIR, 'orders.csv')
 
 def run_trunk_opt():
-    print(">>> 🚚 启动干线物流智能调度引擎 (M1 增强版)...")
+    print(">>> 🚚 启动干线物流智能调度引擎 (M2 时间窗增强版)...")
     builder = VroomInputBuilder()
 
-    # --- 1. 读取车辆文件 (支持异构成本) ---
+    # --- 1. 读取车辆文件 ---
     try:
         if not os.path.exists(VEHICLE_FILE):
             print(f"❌ 错误: 找不到文件 {VEHICLE_FILE}")
@@ -28,10 +28,8 @@ def run_trunk_opt():
         
         for index, row in df_vehicles.iterrows():
             skills = clean_skills(row.get('skills', ''))
-            
-            # 读取新字段，设置默认值
-            cost_km = float(row.get('cost_km', 1.5))       # 默认每公里1.5元
-            fixed_cost = int(row.get('fixed_cost', 200))   # 默认启动费200元
+            cost_km = float(row.get('cost_km', 1.5))       
+            fixed_cost = int(row.get('fixed_cost', 200))   
 
             vehicle = TrunkVehicle(
                 id=int(row['id']),
@@ -48,7 +46,7 @@ def run_trunk_opt():
         print(f"❌ 车辆文件读取失败: {e}")
         return
 
-    # --- 2. 读取订单文件 (支持软时间窗) ---
+    # --- 2. 读取订单文件 (新增 ready_hour) ---
     try:
         if not os.path.exists(ORDER_FILE):
             print(f"❌ 错误: 找不到文件 {ORDER_FILE}")
@@ -60,9 +58,13 @@ def run_trunk_opt():
         for index, row in df_orders.iterrows():
             skills_req = clean_skills(row.get('skill_req', ''))
             
-            # 读取截止时间 (小时转分钟)
+            # 读取截止时间
             deadline_hour = row.get('deadline_hour', None)
             deadline_min = int(deadline_hour * 60) if pd.notna(deadline_hour) else None
+
+            # [新增] 读取下单时间/就绪时间
+            ready_hour = row.get('ready_hour', 0) # 默认为0，即立刻可取
+            ready_min = int(ready_hour * 60)
 
             order = TrunkOrder(
                 id=int(row['id']),
@@ -70,7 +72,8 @@ def run_trunk_opt():
                 delivery_location=[float(row['del_x']), float(row['del_y'])],
                 amount=Dimensions(int(row['weight']), int(row['volume'])),
                 required_skills=skills_req,
-                delivery_deadline_min=deadline_min
+                delivery_deadline_min=deadline_min,
+                ready_time_min=ready_min # 传入模型
             )
             builder.add_order(order)
             
