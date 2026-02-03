@@ -8,12 +8,13 @@ class PlanParser:
             return
 
         print("\n=========================================================================================")
-        print("🚛 干线运输计划表 (含装载顺序 & 预计到达时间)")
+        print("🚛 干线运输计划表 (日期简化版)")
         print("=========================================================================================")
+        print("说明: 输入为年月日，系统自动规划具体的到达时刻 (起运日00:00 - 截止日23:59)")
 
         type_map = {
             "start": "出发",
-            "end": "终点",
+            "end": "回场",
             "pickup": "装货",
             "delivery": "卸货"
         }
@@ -22,9 +23,10 @@ class PlanParser:
             vid = route['vehicle']
             
             print(f"\n[车辆 {vid}] 任务详情:")
-            print("-" * 90)
-            print(f"{'预计时间':<12} | {'类型':<6} | {'地点坐标':<20} | {'装载量(kg/方)':<15} | {'订单ID'}")
-            print("-" * 90)
+            print("-" * 105)
+            # 列宽适配 '02-03 14:30'
+            print(f"{'预计到达时间':<18} | {'类型':<6} | {'地点坐标':<20} | {'装载量(kg/方)':<15} | {'订单ID'}")
+            print("-" * 105)
 
             for step in route['steps']:
                 t_time = step.get('arrival', '-')
@@ -33,10 +35,9 @@ class PlanParser:
                 load_str = f"{step['load'][0]}/{step['load'][1]}"
                 
                 oid_str = str(step.get('order_id', '-'))
-                if oid_str != '-':
-                    oid_str = f"#{oid_str}"
+                if oid_str == '-':
+                    oid_str = ''
 
-                print(f"{t_time:<12} | {t_str:<6} | {loc_str:<20} | {load_str:<15} | {oid_str}")
+                print(f"{t_time:<18} | {t_str:<6} | {loc_str:<20} | {load_str:<15} | {oid_str}")
 
-            print("-" * 90)
-            print("💡 备注: 'D1'代表第一天。LIFO策略已启用，保证【后装先卸】不翻仓。")
+            print("-" * 105)
