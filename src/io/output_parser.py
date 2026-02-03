@@ -23,10 +23,10 @@ class PlanParser:
             vid = route['vehicle']
             
             print(f"\n[车辆 {vid}] 路线详情:")
-            print("-" * 115)
+            print("-" * 150)
             # 调整列宽，增加体积显示
-            print(f"{'到达时间':<16} | {'站点类型':<6} | {'地点坐标':<20} | {'当前载重 (kg/m³)':<18} | {'作业内容 (订单ID)'}")
-            print("-" * 115)
+            print(f"{'到达时间':<16} | {'站点类型':<6} | {'地点坐标':<20} | {'当前载重 (kg)':<18} | {'当前容量 (m³)':<18} | {'作业内容 (订单ID)'}")
+            print("-" * 150)
 
             # --- 聚合逻辑 ---
             raw_steps = route['steps']
@@ -72,7 +72,8 @@ class PlanParser:
                     current_stop['actions'].append(action_str)
                 
                 # [修复] 更新最新的载重状态 (重量/体积)
-                current_stop['load_display'] = f"{curr_w}kg / {curr_v}m³"
+                current_stop['load_weight_display'] = f"{curr_w}kg"
+                current_stop['load_volume_display'] = f"{curr_v}m³"
 
             if current_stop:
                 merged_stops.append(current_stop)
@@ -86,13 +87,14 @@ class PlanParser:
                 elif "回场" in stop['types']: type_display = "回场"
                 
                 loc_str = stop['location_display']
-                load_str = stop['load_display']
-                
+                weight_str = stop['load_weight_display']
+                volume_str = stop['load_volume_display']
+
                 if stop['actions']:
                     action_msg = ", ".join(stop['actions'])
                 else:
                     action_msg = "-"
 
-                print(f"{time_str:<20} | {type_display:<8} | {loc_str:<24} | {load_str:<22} | {action_msg}")
+                print(f"{time_str:<20} | {type_display:<8} | {loc_str:<24} | {weight_str:<22} | {volume_str:<22} | {action_msg}")
 
-            print("-" * 115)
+            print("-" * 150)
