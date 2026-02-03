@@ -11,7 +11,9 @@ class OrToolsSolver:
         shipments = data['shipments']
         
         TRUCK_SPEED_KMH = 70.0  
-        DEFAULT_SERVICE_TIME = 60 
+        # [修改点1] 定义一次性作业时间 (例如: 靠台+解封+手续+装卸 = 60分钟)
+        # 只有在切换站点时，才会计算一次这个时间
+        SITE_OPERATION_TIME_MIN = 60 
 
         if not vehicles or not shipments:
             print("⚠️ 数据为空，无法计算")
@@ -43,7 +45,7 @@ class OrToolsSolver:
             dist = get_dist_km(i, j)
             return int((dist / TRUCK_SPEED_KMH) * 60)
 
-        # --- 3. 成本矩阵 ---
+        # --- 3. 成本矩阵 (距离成本) ---
         for v_idx, vehicle_data in enumerate(vehicles):
             cost_coeff = vehicle_data.get('cost_per_km', 1.0)
             
@@ -78,14 +80,32 @@ class OrToolsSolver:
         create_capacity_dim("Weight", 0)
         create_capacity_dim("Volume", 1)
 
-        # 时间维度
+        # --- [关键修改] 时间维度：按站点计费，同站不计时 ---
         def time_callback(from_index, to_index):
             from_node = manager.IndexToNode(from_index)
-            travel = get_time_min(from_node, manager.IndexToNode(to_index))
-            service = 0
-            if from_node != 0:
-                service = DEFAULT_SERVICE_TIME
-            return travel + service
+            to_node = manager.IndexToNode(to_index)
+            
+            # 计算路程时间
+            travel_time = get_time_min(from_node, to_node)
+            
+            # 这里的逻辑是：Cost(A -> B)
+            # 如果 A 和 B 是同一个坐标（同站连续作业），则不增加时间，不增加行驶时间
+            loc_from = locations[from_node]
+            loc_to = locations[to_node]
+            
+            # 简单的坐标比对 (实际项目中建议用唯一SiteID，这里对比坐标列表)
+            if loc_from == loc_to:
+                return 0  # 同站点连续装卸：无额外时间消耗
+            
+            # 如果是不同站点：
+            # 消耗 = 路程时间 + 上一个站点的作业时间(Site Operation Time)
+            # 注意：若是从车场(Node 0)出发，通常不计装车时间或另算，这里暂且设为0，
+            # 意味着车场出发直接开始计时，到了第一个点才算作业时间。
+            extra_service_time = 0
+            if from_node != 0: 
+                extra_service_time = SITE_OPERATION_TIME_MIN
+            
+            return travel_time + extra_service_time
 
         time_cb_idx = routing.RegisterTransitCallback(time_callback)
         routing.AddDimension(
@@ -120,11 +140,9 @@ class OrToolsSolver:
 
         routing.SetPickupAndDeliveryPolicyOfAllVehicles(pywrapcp.RoutingModel.PICKUP_AND_DELIVERY_LIFO)
 
-        # --- [修正] 技能匹配逻辑 ---
+        # 技能匹配逻辑
         for s_idx, shipment in enumerate(shipments):
             req_skills = set(shipment.get('skills', []))
-            
-            # 如果订单没有技能要求，直接跳过（允许所有车辆）
             if not req_skills: 
                 continue
 
@@ -134,18 +152,14 @@ class OrToolsSolver:
             compatible = []
             for v_idx, vehicle in enumerate(vehicles):
                 veh_skills = set(vehicle.get('skills', []))
-                # 检查车辆是否拥有订单所需的所有技能
                 if req_skills.issubset(veh_skills):
                     compatible.append(v_idx)
             
-            # [修正点] 即使 compatible 为空（没有车能拉），也要 SetValues([])
-            # 这样会强制求解器认为该节点无解，从而报错或返回空方案。
-            # 之前的代码是 if compatible: ... 导致如果没车匹配，就变成了“不限制车辆”，普通车就能拉了。
             routing.VehicleVar(p_index).SetValues(compatible)
             routing.VehicleVar(d_index).SetValues(compatible)
             
             if not compatible:
-                print(f"⚠️ 警告: 订单 #{shipment.get('id')} 需要技能 {req_skills}，但没有车辆满足条件！可能导致无解。")
+                print(f"⚠️ 警告: 订单 #{shipment.get('id')} 无匹配车辆")
 
         # --- 6. 求解 ---
         search_parameters = pywrapcp.DefaultRoutingSearchParameters()
@@ -153,11 +167,11 @@ class OrToolsSolver:
             routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH)
         search_parameters.time_limit.seconds = 5
 
-        print(f"   [算法核心] 启动计算 (车辆数:{len(vehicles)}, 订单数:{len(shipments)})...")
+        print(f"   [算法核心] 启动计算 (站点聚合模式)...")
         solution = routing.SolveWithParameters(search_parameters)
 
         if not solution:
-            print("⚠️ 算法未找到可行解！(请检查是否所有订单都有匹配技能的车辆)")
+            print("⚠️ 算法未找到可行解！")
             return {"routes": []}
 
         return extract_solution(manager, routing, solution, vehicles, locations, shipments, time_dim, start_time)
@@ -198,11 +212,12 @@ def extract_solution(manager, routing, solution, vehicles, locations, shipments,
                 "location": locations[node_index],
                 "load": [load_w, 0],
                 "arrival": time_str,
-                "order_id": f"#{oid}" if oid != "-" else "-"
+                "order_id": oid 
             })
             
             index = solution.Value(routing.NextVar(index))
         
+        # 处理 End 节点
         end_time_val = solution.Value(time_dim.CumulVar(index))
         if start_time:
             end_dt = start_time + timedelta(minutes=end_time_val)
